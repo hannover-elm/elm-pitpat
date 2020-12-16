@@ -77,13 +77,15 @@ type Pool a
 
 
 type ShotEvent
-    = Won
-    | Lost
+    = BallTouchedTarget
+    | BallTouchedFloor
 
 
 type State
     = Playing (Pool ())
-    | Simulating (List ( Time.Posix, ShotEvent )) (Pool ())
+    | Simulating (List ShotEvent) (Pool ())
+    | Won
+    | Lost
 
 
 type Msg
@@ -133,6 +135,7 @@ initialWorld =
         |> World.add Bodies.tableWalls
         |> World.add Bodies.floor
         |> World.add Bodies.cueBall
+        |> World.add Bodies.cueBallTarget
 
 
 camera : Length -> Angle -> Angle -> Point3d Meters WorldCoordinates -> Camera3d Meters WorldCoordinates
@@ -213,29 +216,37 @@ view ({ world, dimensions, distance, cameraAzimuth, cameraElevation, focalPoint 
                 _ ->
                     entities
     in
-    Html.div
-        [ Html.Attributes.style "position" "absolute"
-        , Html.Attributes.style "left" "0"
-        , Html.Attributes.style "top" "0"
-        , Html.Events.preventDefaultOn "wheel"
-            (Json.Decode.map
-                (\deltaY -> ( MouseWheel deltaY, True ))
-                (Json.Decode.field "deltaY" Json.Decode.float)
-            )
-        ]
-        [ Scene3d.custom
-            { dimensions = dimensionsInt
-            , antialiasing = Scene3d.noAntialiasing
-            , camera = camera distance cameraAzimuth cameraElevation focalPoint
-            , entities = entitiesWithUI
-            , lights = Scene3d.twoLights environmentalLighting sunlight
-            , exposure = Scene3d.exposureValue 13
-            , whiteBalance = Scene3d.Light.daylight
-            , clipDepth = Length.meters 0.1
-            , background = Scene3d.backgroundColor Color.black
-            , toneMapping = Scene3d.noToneMapping
-            }
-        ]
+    case model.state of
+        Won ->
+            Html.text "Congratz!"
+
+        Lost ->
+            Html.text "Maybe next time!"
+
+        _ ->
+            Html.div
+                [ Html.Attributes.style "position" "absolute"
+                , Html.Attributes.style "left" "0"
+                , Html.Attributes.style "top" "0"
+                , Html.Events.preventDefaultOn "wheel"
+                    (Json.Decode.map
+                        (\deltaY -> ( MouseWheel deltaY, True ))
+                        (Json.Decode.field "deltaY" Json.Decode.float)
+                    )
+                ]
+                [ Scene3d.custom
+                    { dimensions = dimensionsInt
+                    , antialiasing = Scene3d.noAntialiasing
+                    , camera = camera distance cameraAzimuth cameraElevation focalPoint
+                    , entities = entitiesWithUI
+                    , lights = Scene3d.twoLights environmentalLighting sunlight
+                    , exposure = Scene3d.exposureValue 13
+                    , whiteBalance = Scene3d.Light.daylight
+                    , clipDepth = Length.meters 0.1
+                    , background = Scene3d.backgroundColor Color.black
+                    , toneMapping = Scene3d.noToneMapping
+                    }
+                ]
 
 
 cueAxis : Model -> Axis3d Meters WorldCoordinates
@@ -251,7 +262,7 @@ cueAxis { cameraAzimuth, hitRelativeAzimuth, cueElevation, hitElevation, world }
         point =
             cuePosition world
                 |> Point3d.translateIn pointDirection
-                    (Length.millimeters Bodies.radius)
+                    (Length.millimeters Bodies.ballRadius)
 
         axisDirection =
             Direction3d.xyZ cameraAzimuth cueElevation
@@ -335,8 +346,13 @@ update msg model =
                     }
 
                 Simulating events pool ->
-                    if ballsStoppedMoving newModel.world then
-                        -- TODO check Win, Lost event
+                    if List.member BallTouchedFloor events then
+                        { newModel | state = Lost }
+
+                    else if List.member BallTouchedTarget events then
+                        { newModel | state = Won }
+
+                    else if ballsStoppedMoving newModel.world then
                         { newModel
                             | state = Playing pool
                             , hitRelativeAzimuth = Angle.degrees 0
@@ -354,6 +370,9 @@ update msg model =
                             | state = Simulating newEvents pool
                             , world = newWorld
                         }
+
+                _ ->
+                    newModel
 
         Resize width height ->
             { model | dimensions = ( Pixels.float (toFloat width), Pixels.float (toFloat height) ) }
@@ -411,6 +430,9 @@ update msg model =
 
                 Simulating _ _ ->
                     { model | mouseAction = Orbiting mouse }
+
+                _ ->
+                    model
 
         MouseMove mouse ->
             case model.mouseAction of
@@ -512,7 +534,12 @@ update msg model =
                     model
 
 
-simulateWithEvents : Int -> Time.Posix -> World Data -> List ( Time.Posix, ShotEvent ) -> ( World Data, List ( Time.Posix, ShotEvent ) )
+simulateWithEvents :
+    Int
+    -> Time.Posix
+    -> World Data
+    -> List ShotEvent
+    -> ( World Data, List ShotEvent )
 simulateWithEvents frame time world events =
     if frame > 0 then
         let
@@ -528,11 +555,17 @@ simulateWithEvents frame time world events =
                                 Contact.bodies contact
                         in
                         case ( (Body.data b1).id, (Body.data b2).id ) of
+                            ( CueBall, CueBallTarget ) ->
+                                BallTouchedTarget :: currentEvents
+
+                            ( CueBallTarget, CueBall ) ->
+                                BallTouchedTarget :: currentEvents
+
                             ( CueBall, Floor ) ->
-                                ( time, Lost ) :: currentEvents
+                                BallTouchedFloor :: currentEvents
 
                             ( Floor, CueBall ) ->
-                                ( time, Lost ) :: currentEvents
+                                BallTouchedFloor :: currentEvents
 
                             _ ->
                                 currentEvents

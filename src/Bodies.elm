@@ -5,9 +5,10 @@ module Bodies exposing
     , areaBallInHandEntity
     , areaBehindTheHeadString
     , areaBehindTheHeadStringEntity
+    , ballRadius
     , cueBall
+    , cueBallTarget
     , floor
-    , radius
     , tableSurface
     , tableWalls
     )
@@ -39,6 +40,7 @@ import Vector3d
 type Id
     = Floor
     | CueBall
+    | CueBallTarget
     | Table
     | Walls
 
@@ -121,8 +123,8 @@ areaBehindTheHeadStringEntity =
             Scene3d.nothing
 
 
-radius : Float
-radius =
+ballRadius : Float
+ballRadius =
     38 / 2
 
 
@@ -130,7 +132,7 @@ ballSphere : Sphere3d Meters BodyCoordinates
 ballSphere =
     Sphere3d.atPoint
         (Point3d.millimeters 0 0 0)
-        (millimeters radius)
+        (millimeters ballRadius)
 
 
 cueBall : Body Data
@@ -145,7 +147,27 @@ cueBall =
         |> Body.withMaterial ballMaterial
         |> Body.withDamping ballDamping
         |> Body.withBehavior (Body.dynamic (Mass.grams 170))
-        |> Body.translateBy (Vector3d.millimeters 0 0 radius)
+        |> Body.translateBy (Vector3d.millimeters 0 0 ballRadius)
+
+
+cueBallTarget : Body Data
+cueBallTarget =
+    Body.sphere ballSphere
+        { id = CueBallTarget
+        , entity =
+            Scene3d.sphereWithShadow
+                (Material.matte (Color.rgb255 255 0 0))
+                ballSphere
+        }
+        |> Body.withMaterial ballMaterial
+        |> Body.withDamping ballDamping
+        |> Body.withBehavior (Body.dynamic (Mass.grams 170))
+        |> Body.translateBy (Vector3d.millimeters 0 0 ballRadius)
+        |> Body.translateBy
+            (Vector3d.meters 0
+                (sizes.halfLength - sizes.endCircleRadius)
+                0
+            )
 
 
 ballDamping : { linear : Float, angular : Float }
@@ -185,6 +207,7 @@ sizes :
     , thickness : Float
     , floorHalfSize : Float
     , ballRadius : Float
+    , endCircleRadius : Float
     }
 sizes =
     let
@@ -199,6 +222,7 @@ sizes =
     , thickness = 0.03 -- the height of table top
     , floorHalfSize = 15
     , ballRadius = 57.15 / 2000
+    , endCircleRadius = 0.4
     }
 
 
