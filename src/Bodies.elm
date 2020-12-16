@@ -155,18 +155,21 @@ cueBallTarget =
     Body.sphere ballSphere
         { id = CueBallTarget
         , entity =
-            Scene3d.sphereWithShadow
-                (Material.matte (Color.rgb255 255 0 0))
-                ballSphere
+            Scene3d.blockWithShadow
+                (Material.nonmetal
+                    { baseColor = Color.rgb255 255 0 0
+                    , roughness = 1
+                    }
+                )
+                (Block3d.from
+                    (Point3d.meters -sizes.ballRadius -sizes.ballRadius 0)
+                    (Point3d.meters sizes.ballRadius sizes.ballRadius -sizes.thickness)
+                )
         }
-        |> Body.withMaterial ballMaterial
-        |> Body.withDamping ballDamping
-        |> Body.withBehavior (Body.dynamic (Mass.grams 170))
-        |> Body.translateBy (Vector3d.millimeters 0 0 ballRadius)
         |> Body.translateBy
             (Vector3d.meters 0
                 (sizes.halfLength - sizes.endCircleRadius)
-                0
+                -sizes.thickness
             )
 
 
@@ -232,7 +235,19 @@ tableSurface =
         blocks =
             [ Block3d.from
                 (Point3d.meters -sizes.halfWidth -sizes.halfLength 0)
+                (Point3d.meters sizes.halfWidth (sizes.halfLength - sizes.endCircleRadius - sizes.ballRadius) -sizes.thickness)
+            , Block3d.from
+                (Point3d.meters -sizes.halfWidth
+                    (sizes.halfLength - sizes.endCircleRadius + sizes.ballRadius)
+                    0
+                )
                 (Point3d.meters sizes.halfWidth sizes.halfLength -sizes.thickness)
+            , Block3d.from
+                (Point3d.meters -sizes.halfWidth (sizes.halfLength - sizes.endCircleRadius - sizes.ballRadius) 0)
+                (Point3d.meters (0 - sizes.ballRadius) (sizes.halfLength - sizes.endCircleRadius + sizes.ballRadius) -sizes.thickness)
+            , Block3d.from
+                (Point3d.meters sizes.ballRadius (sizes.halfLength - sizes.endCircleRadius - sizes.ballRadius) 0)
+                (Point3d.meters sizes.halfWidth (sizes.halfLength - sizes.endCircleRadius + sizes.ballRadius) -sizes.thickness)
             ]
     in
     Body.compound (List.map Physics.Shape.block blocks)
