@@ -1,4 +1,4 @@
 { pkgs ? import <nixpkgs> {} }:
 with pkgs; mkShell {
-  buildInputs = [ elmPackages.elm ];
+  buildInputs = [ elmPackages.elm rsync ];
 }
