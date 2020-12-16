@@ -5,9 +5,9 @@ module Bodies exposing
     , areaBallInHandEntity
     , areaBehindTheHeadString
     , areaBehindTheHeadStringEntity
-    , balls
     , cueBall
     , floor
+    , radius
     , tableSurface
     , tableWalls
     )
@@ -18,7 +18,6 @@ import Block3d
 import Color exposing (Color)
 import Dict exposing (Dict)
 import Direction3d
-import EightBall exposing (Ball)
 import Length exposing (Meters, meters, millimeters)
 import Mass
 import Physics.Body as Body exposing (Body)
@@ -39,7 +38,6 @@ import Vector3d
 
 type Id
     = Floor
-    | Numbered Ball
     | CueBall
     | Table
     | Walls
@@ -125,7 +123,7 @@ areaBehindTheHeadStringEntity =
 
 radius : Float
 radius =
-    57.15 / 2
+    38 / 2
 
 
 ballSphere : Sphere3d Meters BodyCoordinates
@@ -133,66 +131,6 @@ ballSphere =
     Sphere3d.atPoint
         (Point3d.millimeters 0 0 0)
         (millimeters radius)
-
-
-balls : Material.Texture Float -> Dict Int (Material.Texture Color) -> List (Body Data)
-balls roughnessTexture ballTextures =
-    let
-        numbers =
-            [ 1, 10, 4, 2, 8, 5, 9, 3, 14, 15, 11, 12, 6, 13, 7 ]
-
-        lastRow =
-            sqrt (2 * toFloat (List.length numbers)) - 1
-    in
-    List.indexedMap
-        (\index number ->
-            let
-                row =
-                    round (sqrt (2 * (toFloat index + 1))) - 1
-
-                rowStartIndex =
-                    row * (row + 1) // 2
-
-                distance =
-                    radius * sqrt 3
-
-                x =
-                    (toFloat index - toFloat rowStartIndex - toFloat row / 2) * radius * 2
-
-                y =
-                    (toFloat row - lastRow / 2) * distance
-
-                colorTexture =
-                    Dict.get number ballTextures
-                        |> Maybe.withDefault (Material.constant (Color.rgb255 0 0 0))
-
-                material =
-                    Material.texturedPbr
-                        { baseColor = colorTexture
-                        , roughness = roughnessTexture
-                        , metallic = Material.constant 0
-                        }
-            in
-            Body.sphere ballSphere
-                { id =
-                    EightBall.numberedBall number
-                        |> Maybe.map Numbered
-                        |> Maybe.withDefault CueBall
-                , entity =
-                    Scene3d.sphereWithShadow
-                        material
-                        ballSphere
-                        -- rotate to see the numbers
-                        |> Scene3d.rotateAround
-                            (Axis3d.through (Sphere3d.centerPoint ballSphere) Direction3d.x)
-                            (Angle.degrees 90)
-                }
-                |> Body.withMaterial ballMaterial
-                |> Body.withDamping ballDamping
-                |> Body.withBehavior (Body.dynamic (Mass.grams 170))
-                |> Body.translateBy (Vector3d.millimeters x (y + 2100 / 4) radius)
-        )
-        numbers
 
 
 cueBall : Body Data
@@ -207,7 +145,7 @@ cueBall =
         |> Body.withMaterial ballMaterial
         |> Body.withDamping ballDamping
         |> Body.withBehavior (Body.dynamic (Mass.grams 170))
-        |> Body.translateBy (Vector3d.meters 0 (-2.1 / 4) radius)
+        |> Body.translateBy (Vector3d.millimeters 0 0 radius)
 
 
 ballDamping : { linear : Float, angular : Float }
@@ -229,7 +167,7 @@ floor =
         { id = Floor
         , entity =
             Scene3d.quad
-                (Material.matte (Color.rgb255 46 52 54))
+                (Material.matte (Color.rgb255 255 255 255))
                 (Point3d.meters -sizes.floorHalfSize -sizes.floorHalfSize 0)
                 (Point3d.meters sizes.floorHalfSize -sizes.floorHalfSize 0)
                 (Point3d.meters sizes.floorHalfSize sizes.floorHalfSize 0)
@@ -241,11 +179,8 @@ floor =
 sizes :
     { halfWidth : Float
     , halfLength : Float
-    , halfHole : Float
     , wallThickness : Float
     , wallHeight : Float
-    , halfCornerHole : Float
-    , halfCornerDiagonal : Float
     , height : Float
     , thickness : Float
     , floorHalfSize : Float
@@ -253,22 +188,13 @@ sizes :
     }
 sizes =
     let
-        halfHole =
-            0.05
-
         wallThickness =
             0.02
-
-        halfCornerHole =
-            sqrt (halfHole ^ 2) + wallThickness
     in
-    { halfWidth = 1.1 / 2
-    , halfLength = 2.1 / 2
-    , halfHole = halfHole
+    { halfWidth = 0.4 / 2
+    , halfLength = 2.5 / 2
     , wallThickness = wallThickness
     , wallHeight = 0.03
-    , halfCornerHole = halfCornerHole
-    , halfCornerDiagonal = sqrt (halfCornerHole ^ 2 / 2)
     , height = 0.45 -- distance from the floor until the top of the table
     , thickness = 0.03 -- the height of table top
     , floorHalfSize = 15
@@ -279,29 +205,10 @@ sizes =
 tableSurface : Body Data
 tableSurface =
     let
-        cornerBlock =
-            Block3d.from
-                (Point3d.meters -sizes.halfCornerDiagonal -sizes.halfCornerDiagonal 0)
-                (Point3d.meters sizes.halfCornerDiagonal sizes.halfCornerDiagonal -sizes.thickness)
-                |> Block3d.rotateAround Axis3d.z (Angle.degrees 45)
-
         blocks =
             [ Block3d.from
-                (Point3d.meters -sizes.halfWidth (-sizes.halfLength + sizes.halfCornerHole) 0)
-                (Point3d.meters sizes.halfWidth (sizes.halfLength - sizes.halfCornerHole) -sizes.thickness)
-            , Block3d.from
-                (Point3d.meters (-sizes.halfWidth + sizes.halfCornerHole) (sizes.halfLength - sizes.halfCornerHole) 0)
-                (Point3d.meters (sizes.halfWidth - sizes.halfCornerHole) sizes.halfLength -sizes.thickness)
-            , Block3d.from
-                (Point3d.meters (-sizes.halfWidth + sizes.halfCornerHole) (-sizes.halfLength + sizes.halfCornerHole) 0)
-                (Point3d.meters (sizes.halfWidth - sizes.halfCornerHole) -sizes.halfLength -sizes.thickness)
-            , Block3d.from
-                (Point3d.meters (-sizes.halfWidth + sizes.halfCornerHole) (-sizes.halfLength + sizes.halfCornerHole) 0)
-                (Point3d.meters (sizes.halfWidth - sizes.halfCornerHole) -sizes.halfLength -sizes.thickness)
-            , Block3d.translateBy (Vector3d.meters (-sizes.halfWidth + sizes.halfCornerHole) (-sizes.halfLength + sizes.halfCornerHole) 0) cornerBlock
-            , Block3d.translateBy (Vector3d.meters (sizes.halfWidth - sizes.halfCornerHole) (-sizes.halfLength + sizes.halfCornerHole) 0) cornerBlock
-            , Block3d.translateBy (Vector3d.meters (-sizes.halfWidth + sizes.halfCornerHole) (sizes.halfLength - sizes.halfCornerHole) 0) cornerBlock
-            , Block3d.translateBy (Vector3d.meters (sizes.halfWidth - sizes.halfCornerHole) (sizes.halfLength - sizes.halfCornerHole) 0) cornerBlock
+                (Point3d.meters -sizes.halfWidth -sizes.halfLength 0)
+                (Point3d.meters sizes.halfWidth sizes.halfLength -sizes.thickness)
             ]
     in
     Body.compound (List.map Physics.Shape.block blocks)
@@ -331,20 +238,18 @@ tableWalls =
     let
         blocks =
             [ Block3d.from
-                (Point3d.meters -sizes.halfWidth (-sizes.halfLength + sizes.halfCornerHole) sizes.wallHeight)
-                (Point3d.meters (-sizes.halfWidth + sizes.wallThickness) -sizes.halfHole 0)
+                (Point3d.meters -sizes.halfWidth -sizes.halfLength sizes.wallHeight)
+                (Point3d.meters (-sizes.halfWidth + sizes.wallThickness) sizes.halfLength 0)
             , Block3d.from
-                (Point3d.meters (sizes.halfWidth - sizes.wallThickness) -sizes.halfHole 0)
-                (Point3d.meters sizes.halfWidth (-sizes.halfLength + sizes.halfCornerHole) sizes.wallHeight)
+                (Point3d.meters (sizes.halfWidth - sizes.wallThickness) -sizes.halfLength 0)
+                (Point3d.meters sizes.halfWidth sizes.halfLength sizes.wallHeight)
             , Block3d.from
-                (Point3d.meters (sizes.halfWidth - sizes.halfCornerHole) (-sizes.halfLength + sizes.wallThickness) 0)
-                (Point3d.meters (-sizes.halfWidth + sizes.halfCornerHole) -sizes.halfLength sizes.wallHeight)
+                (Point3d.meters sizes.halfWidth (-sizes.halfLength + sizes.wallThickness) 0)
+                (Point3d.meters -sizes.halfWidth -sizes.halfLength sizes.wallHeight)
+            , Block3d.from
+                (Point3d.meters sizes.halfWidth (sizes.halfLength - sizes.wallThickness) 0)
+                (Point3d.meters -sizes.halfWidth sizes.halfLength sizes.wallHeight)
             ]
-                |> List.foldl
-                    (\block result ->
-                        Block3d.rotateAround Axis3d.z (Angle.degrees 180) block :: block :: result
-                    )
-                    []
 
         shapes =
             blocks

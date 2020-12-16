@@ -11,7 +11,6 @@ import Cylinder3d
 import Dict exposing (Dict)
 import Direction3d
 import Duration exposing (Duration, seconds)
-import EightBall exposing (AwaitingBallInHand, AwaitingNextShot, AwaitingPlaceBallBehindHeadstring, Pool, ShotEvent, WhatHappened(..))
 import Force
 import Geometry
 import Html exposing (Html)
@@ -73,11 +72,18 @@ type ShootButtonState
     | Released
 
 
+type Pool a
+    = Pool
+
+
+type ShotEvent
+    = Won
+    | Lost
+
+
 type State
-    = PlacingBehindHeadString (Pool AwaitingPlaceBallBehindHeadstring)
-    | Playing (Pool AwaitingNextShot)
-    | Simulating (List ( Time.Posix, ShotEvent )) (Pool AwaitingNextShot)
-    | PlacingBallInHand (Pool AwaitingBallInHand)
+    = Playing (Pool ())
+    | Simulating (List ( Time.Posix, ShotEvent )) (Pool ())
 
 
 type Msg
@@ -95,8 +101,7 @@ initial : Dict Int (Material.Texture Color) -> Material.Texture Float -> ( Float
 initial ballTextures roughnessTexture ( width, height ) =
     let
         world =
-            Bodies.balls roughnessTexture ballTextures
-                |> List.foldl World.add initialWorld
+            initialWorld
 
         time =
             -- TODO: consider getting the initial time
@@ -114,7 +119,7 @@ initial ballTextures roughnessTexture ( width, height ) =
     , hitElevation = Angle.degrees 0
     , mouseAction = Still
     , shootButtonState = Released
-    , state = PlacingBehindHeadString (EightBall.rack time EightBall.start)
+    , state = Playing Pool
     }
 
 
@@ -189,16 +194,7 @@ view ({ world, dimensions, distance, cameraAzimuth, cameraElevation, focalPoint 
                 }
 
         bodies =
-            case model.state of
-                PlacingBehindHeadString _ ->
-                    World.bodies world
-                        |> List.filter
-                            (\b ->
-                                (Body.data b).id /= CueBall
-                            )
-
-                _ ->
-                    World.bodies world
+            World.bodies world
 
         entities =
             List.map
@@ -211,12 +207,6 @@ view ({ world, dimensions, distance, cameraAzimuth, cameraElevation, focalPoint 
 
         entitiesWithUI =
             case model.state of
-                PlacingBehindHeadString _ ->
-                    Bodies.areaBehindTheHeadStringEntity :: entities
-
-                PlacingBallInHand _ ->
-                    Bodies.areaBallInHandEntity :: entities
-
                 Playing _ ->
                     cueEntity model :: entities
 
@@ -260,7 +250,8 @@ cueAxis { cameraAzimuth, hitRelativeAzimuth, cueElevation, hitElevation, world }
 
         point =
             cuePosition world
-                |> Point3d.translateIn pointDirection (Length.millimeters (57.15 / 2))
+                |> Point3d.translateIn pointDirection
+                    (Length.millimeters Bodies.radius)
 
         axisDirection =
             Direction3d.xyZ cameraAzimuth cueElevation
@@ -317,11 +308,6 @@ ballsStoppedMoving world =
                         |> Vector3d.length
                         |> Quantity.lessThan (Speed.metersPerSecond 0.0005)
 
-                Numbered _ ->
-                    Body.velocity body
-                        |> Vector3d.length
-                        |> Quantity.lessThan (Speed.metersPerSecond 0.0005)
-
                 _ ->
                     True
         )
@@ -337,12 +323,6 @@ update msg model =
                     { model | time = time }
             in
             case newModel.state of
-                PlacingBallInHand _ ->
-                    newModel
-
-                PlacingBehindHeadString _ ->
-                    newModel
-
                 Playing _ ->
                     { newModel
                         | shootButtonState =
@@ -356,27 +336,14 @@ update msg model =
 
                 Simulating events pool ->
                     if ballsStoppedMoving newModel.world then
-                        case EightBall.playerShot (List.reverse events) pool of
-                            PlayersFault newPool ->
-                                { newModel
-                                    | state = PlacingBallInHand newPool
-                                    , focalPoint = Point3d.origin
-                                }
-
-                            NextShot newPool ->
-                                { newModel
-                                    | state = Playing newPool
-                                    , hitRelativeAzimuth = Angle.degrees 0
-                                    , hitElevation = Angle.degrees 0
-                                    , focalPoint = cuePosition newModel.world
-                                    , cueElevation = Angle.degrees 5
-                                }
-
-                            GameOver _ _ ->
-                                Debug.todo "AwaitingNewGame"
-
-                            Error _ ->
-                                Debug.todo "Error"
+                        -- TODO check Win, Lost event
+                        { newModel
+                            | state = Playing pool
+                            , hitRelativeAzimuth = Angle.degrees 0
+                            , hitElevation = Angle.degrees 0
+                            , focalPoint = cuePosition newModel.world
+                            , cueElevation = Angle.degrees 5
+                        }
 
                     else
                         let
@@ -401,60 +368,6 @@ update msg model =
 
         MouseDown mouse ->
             case model.state of
-                PlacingBallInHand pool ->
-                    case Geometry.intersectionWithRectangle (ray model mouse) Bodies.areaBallInHand of
-                        Just point ->
-                            let
-                                position =
-                                    Point3d.translateBy (Vector3d.millimeters 0 0 (57.15 / 2)) point
-                            in
-                            if canSpawnHere position model.world then
-                                { model
-                                    | focalPoint = position
-                                    , state = Playing (EightBall.ballPlacedInHand model.time pool)
-                                    , world =
-                                        World.update
-                                            (\b ->
-                                                if (Body.data b).id == CueBall then
-                                                    Body.moveTo position b
-
-                                                else
-                                                    b
-                                            )
-                                            model.world
-                                }
-
-                            else
-                                { model | mouseAction = Orbiting mouse }
-
-                        Nothing ->
-                            { model | mouseAction = Orbiting mouse }
-
-                PlacingBehindHeadString pool ->
-                    case Geometry.intersectionWithRectangle (ray model mouse) Bodies.areaBehindTheHeadString of
-                        Just point ->
-                            let
-                                position =
-                                    Point3d.translateBy (Vector3d.millimeters 0 0 (57.15 / 2)) point
-                            in
-                            { model
-                                | state = Playing (EightBall.ballPlacedBehindHeadString model.time pool)
-                                , focalPoint = position
-                                , world =
-                                    World.update
-                                        (\b ->
-                                            if (Body.data b).id == CueBall then
-                                                Body.moveTo position b
-
-                                            else
-                                                b
-                                        )
-                                        model.world
-                            }
-
-                        Nothing ->
-                            { model | mouseAction = Orbiting mouse }
-
                 Playing _ ->
                     case World.raycast (ray model mouse) model.world of
                         Just raycastResult ->
@@ -599,21 +512,6 @@ update msg model =
                     model
 
 
-canSpawnHere : Point3d Meters WorldCoordinates -> World Data -> Bool
-canSpawnHere point world =
-    List.all
-        (\b ->
-            case (Body.data b).id of
-                Numbered _ ->
-                    Quantity.greaterThan (Length.millimeters 57.15)
-                        (Point3d.distanceFrom point (Body.originPoint b))
-
-                _ ->
-                    True
-        )
-        (World.bodies world)
-
-
 simulateWithEvents : Int -> Time.Posix -> World Data -> List ( Time.Posix, ShotEvent ) -> ( World Data, List ( Time.Posix, ShotEvent ) )
 simulateWithEvents frame time world events =
     if frame > 0 then
@@ -630,31 +528,12 @@ simulateWithEvents frame time world events =
                                 Contact.bodies contact
                         in
                         case ( (Body.data b1).id, (Body.data b2).id ) of
-                            -- TODO: check collisions with pockets instead when we have them
-                            ( Numbered ball, Floor ) ->
-                                EightBall.ballFellInPocket time ball :: currentEvents
-
-                            ( Floor, Numbered ball ) ->
-                                EightBall.ballFellInPocket time ball :: currentEvents
-
-                            ( CueBall, Numbered ball ) ->
-                                EightBall.cueHitBall time ball :: currentEvents
-
-                            ( Numbered ball, CueBall ) ->
-                                EightBall.cueHitBall time ball :: currentEvents
-
                             ( CueBall, Floor ) ->
-                                EightBall.scratch time :: currentEvents
+                                ( time, Lost ) :: currentEvents
 
                             ( Floor, CueBall ) ->
-                                EightBall.scratch time :: currentEvents
+                                ( time, Lost ) :: currentEvents
 
-                            --(Numbered _, Numbered _) ->
-                            --    EightBall.twoBallsCollided time
-                            --( Walls, Numbered _ ) ->
-                            --    EightBall.ballTouchedTheWall time
-                            --( Numbered _, Walls ) ->
-                            --    EightBall.ballTouchedTheWall time
                             _ ->
                                 currentEvents
                     )
